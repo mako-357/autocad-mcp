@@ -1,0 +1,26 @@
+# Build outputs
+build/
+target/
+*.bundle
+*.dSYM
+
+# Xcode
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust
+Cargo.lock
+
+# Temp files
+/tmp/
+*.log

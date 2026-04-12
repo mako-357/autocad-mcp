@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "autocad": {
+      "command": "cargo",
+      "args": ["run", "--manifest-path", "mcp-server/Cargo.toml"]
+    }
+  }
+}

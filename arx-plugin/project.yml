@@ -1,0 +1,22 @@
+name: gfp-arx-bridge
+targets:
+  gfp-arx-bridge:
+    type: bundle
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: .
+        excludes:
+          - "build/**"
+          - "*.xcconfig"
+          - "*.xcodeproj/**"
+          - "project.yml"
+    configFiles:
+      Debug: arx_debug.xcconfig
+      Release: arx_release.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gfp.arx-bridge
+        WRAPPER_EXTENSION: bundle
+        GENERATE_INFOPLIST_FILE: YES
+        CLANG_CXX_LANGUAGE_STANDARD: c++17

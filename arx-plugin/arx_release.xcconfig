@@ -1,0 +1,7 @@
+#include "/Library/Developer/Autodesk/ObjectARX 2027/inc/prj_arx.xcconfig"
+#include "/Library/Developer/Autodesk/ObjectARX 2027/inc/prj_release.xcconfig"
+#include "arx_common.xcconfig"
+
+GCC_PREPROCESSOR_DEFINITIONS = $(GCC_PREPROCESSOR_DEFINITIONS) $(DBXPROJ_PREPROCESSOR_DEFINITIONS) $(ARXPROJ_PREPROCESSOR_DEFINITIONS) $(RELEASEPROJ_PREPROCESSOR_DEFINITIONS)
+
+OTHER_LDFLAGS = $(DBXPROJ_OTHER_LDFLAGS) $(ARXPROJ_OTHER_LDFLAGS)
