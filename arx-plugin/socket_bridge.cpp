@@ -148,39 +148,6 @@ void SocketBridge::setHandler(CommandHandler handler) {
     m_handler = handler;
 }
 
-bool SocketBridge::hasPendingCommands() {
-    std::lock_guard<std::mutex> lock(m_cmdMutex);
-    return !m_cmdQueue.empty();
-}
-
-void SocketBridge::processPendingCommands() {
-    std::queue<std::pair<int, BridgeCommand>> pending;
-    {
-        std::lock_guard<std::mutex> lock(m_cmdMutex);
-        std::swap(pending, m_cmdQueue);
-    }
-
-    while (!pending.empty()) {
-        auto [clientFd, cmd] = pending.front();
-        pending.pop();
-
-        BridgeResult result;
-        result.id = cmd.id;
-
-        if (m_handler) {
-            result = m_handler(cmd);
-        } else {
-            result.success = false;
-            result.data = "\"no handler registered\"";
-        }
-
-        // 結果をソケットスレッドに返す
-        std::string response = formatResult(result);
-        // 直接クライアントに書き込み（メインスレッドから）
-        write(clientFd, response.c_str(), response.size());
-    }
-}
-
 void SocketBridge::serverLoop() {
     while (m_running) {
         // select() でタイムアウト付き accept を実現
@@ -234,13 +201,14 @@ void SocketBridge::handleClient(int clientFd) {
 
             BridgeCommand cmd = parseCommand(line);
 
-            // デバッグログ
+#ifdef DEBUG
             FILE* logf = fopen("/tmp/gfp-arx-debug.log", "a");
             if (logf) {
                 fprintf(logf, "[RECV] id=%s method='%s' params='%s'\n",
                         cmd.id.c_str(), cmd.method.c_str(), cmd.params.c_str());
                 fflush(logf);
             }
+#endif
 
             BridgeResult result;
             result.id = cmd.id;
@@ -249,16 +217,22 @@ void SocketBridge::handleClient(int clientFd) {
                 result.success = true;
                 result.data = "\"pong\"";
             } else if (m_handler) {
+#ifdef DEBUG
                 if (logf) { fprintf(logf, "[HANDLER] calling handler...\n"); fflush(logf); }
+#endif
                 result = m_handler(cmd);
+#ifdef DEBUG
                 if (logf) { fprintf(logf, "[HANDLER] done: %s\n", result.data.c_str()); fflush(logf); }
+#endif
             } else {
                 result.success = false;
                 result.data = "\"no handler\"";
             }
 
             std::string response = formatResult(result);
+#ifdef DEBUG
             if (logf) { fprintf(logf, "[SEND] %s", response.c_str()); fclose(logf); }
+#endif
             write(clientFd, response.c_str(), response.size());
         }
     }

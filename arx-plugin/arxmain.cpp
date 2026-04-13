@@ -24,6 +24,7 @@
 #include <thread>
 #include <cstdio>
 #include <cmath>
+#include <algorithm>
 
 static const char* SOCKET_PATH = "/tmp/gfp-arx-bridge.sock";
 
@@ -267,7 +268,7 @@ static AcDbDatabase* getDb() {
 
 static AcDbBlockTableRecord* getModelSpace(AcDbDatabase* db, AcDb::OpenMode mode = AcDb::kForWrite) {
     AcDbBlockTable* bt = nullptr;
-    db->getBlockTable(bt, AcDb::kForRead);
+    if (db->getBlockTable(bt, AcDb::kForRead) != Acad::eOk || !bt) return nullptr;
     AcDbBlockTableRecord* ms = nullptr;
     bt->getAt(ACDB_MODEL_SPACE, ms, mode);
     bt->close();
@@ -338,6 +339,8 @@ static BridgeResult executeLispDirect(const BridgeCommand& cmd) {
                 << " (setq gfp:f (open \"/tmp/gfp-lisp-result.txt\" \"w\"))"
                 << " (princ gfp:res gfp:f)(close gfp:f)(princ))\n";
 
+        // 注: sendStringToExecute は AutoCAD ドキュメントに「任意のスレッドから呼べる」と記載あり。
+        // ただしスレッドセーフティに注意。動作確認済みだが、問題が発生した場合はメインスレッドキュー経由に変更を検討。
         AcApDocument* pDoc = acDocManager->curDocument();
         if (pDoc) acDocManager->sendStringToExecute(pDoc, utf8_to_wstr(lispCmd.str()).c_str(), false, true);
 
@@ -367,6 +370,7 @@ static BridgeResult executeLispDirect(const BridgeCommand& cmd) {
                 << " (setq gfp:f (open \"/tmp/gfp-cmd-done.txt\" \"w\"))"
                 << " (princ \"OK\" gfp:f)(close gfp:f)(princ))\n";
 
+        // 注: sendStringToExecute のスレッドセーフティについては eval_lisp 側のコメント参照
         AcApDocument* pDoc = acDocManager->curDocument();
         if (pDoc) acDocManager->sendStringToExecute(pDoc, utf8_to_wstr(lispCmd.str()).c_str(), false, true);
 
@@ -521,6 +525,7 @@ static BridgeResult executeOnMainThread(const BridgeCommand& cmd) {
         std::string layer = extractStr(cmd.params, "layer");
 
         AcDbBlockTableRecord* ms = getModelSpace(db);
+        if (!ms) { result.success = false; result.data = "\"Cannot open model space\""; return result; }
         AcDbLine* ent = new AcDbLine(AcGePoint3d(x1,y1,z1), AcGePoint3d(x2,y2,z2));
         if (!layer.empty()) ent->setLayer(utf8_to_wstr(layer).c_str());
         AcDbObjectId id; ms->appendAcDbEntity(id, ent);
@@ -536,6 +541,7 @@ static BridgeResult executeOnMainThread(const BridgeCommand& cmd) {
         std::string layer = extractStr(cmd.params, "layer");
 
         AcDbBlockTableRecord* ms = getModelSpace(db);
+        if (!ms) { result.success = false; result.data = "\"Cannot open model space\""; return result; }
         AcDbCircle* ent = new AcDbCircle(AcGePoint3d(cx,cy,cz), AcGeVector3d::kZAxis, r);
         if (!layer.empty()) ent->setLayer(utf8_to_wstr(layer).c_str());
         AcDbObjectId id; ms->appendAcDbEntity(id, ent);
@@ -552,6 +558,7 @@ static BridgeResult executeOnMainThread(const BridgeCommand& cmd) {
         std::string layer = extractStr(cmd.params, "layer");
 
         AcDbBlockTableRecord* ms = getModelSpace(db);
+        if (!ms) { result.success = false; result.data = "\"Cannot open model space\""; return result; }
         AcDbArc* ent = new AcDbArc(AcGePoint3d(cx,cy,cz), r, sa * M_PI/180.0, ea * M_PI/180.0);
         if (!layer.empty()) ent->setLayer(utf8_to_wstr(layer).c_str());
         AcDbObjectId id; ms->appendAcDbEntity(id, ent);
@@ -569,6 +576,7 @@ static BridgeResult executeOnMainThread(const BridgeCommand& cmd) {
         if (pts.size() < 2) { result.success = false; result.data = "\"Need at least 2 points\""; return result; }
 
         AcDbBlockTableRecord* ms = getModelSpace(db);
+        if (!ms) { result.success = false; result.data = "\"Cannot open model space\""; return result; }
         AcDbPolyline* ent = new AcDbPolyline((unsigned int)pts.size());
         for (size_t i = 0; i < pts.size(); i++) {
             ent->addVertexAt((unsigned int)i, AcGePoint2d(pts[i].first, pts[i].second));
@@ -591,6 +599,7 @@ static BridgeResult executeOnMainThread(const BridgeCommand& cmd) {
         if (height <= 0) height = 2.5;
 
         AcDbBlockTableRecord* ms = getModelSpace(db);
+        if (!ms) { result.success = false; result.data = "\"Cannot open model space\""; return result; }
         AcDbText* ent = new AcDbText(AcGePoint3d(x,y,z), utf8_to_wstr(text).c_str(), AcDbObjectId::kNull, height, rotation * M_PI/180.0);
         if (!layer.empty()) ent->setLayer(utf8_to_wstr(layer).c_str());
         AcDbObjectId id; ms->appendAcDbEntity(id, ent);
@@ -652,6 +661,7 @@ static BridgeResult executeOnMainThread(const BridgeCommand& cmd) {
         }
 
         AcDbBlockTableRecord* ms = getModelSpace(db);
+        if (!ms) { clone->close(); result.success = false; result.data = "\"Cannot open model space\""; return result; }
         AcDbObjectId newId; ms->appendAcDbEntity(newId, clone);
         clone->close(); ms->close();
         result.success = true; result.data = entityIdJson(newId);
@@ -682,6 +692,12 @@ static BridgeResult executeOnMainThread(const BridgeCommand& cmd) {
         if (id.isNull()) { result.success = false; result.data = "\"Invalid entity_id\""; return result; }
         double cx=extractNum(cmd.params,"cx"), cy=extractNum(cmd.params,"cy");
         double factor=extractNum(cmd.params,"factor");
+
+        if (factor <= 0 || factor > 1000) {
+            result.success = false;
+            result.data = "\"factor must be between 0 and 1000\"";
+            return result;
+        }
 
         AcDbEntity* ent = nullptr;
         if (acdbOpenObject(ent, id, AcDb::kForWrite) == Acad::eOk) {
@@ -796,6 +812,7 @@ static BridgeResult executeOnMainThread(const BridgeCommand& cmd) {
         if (layer.empty()) { result.success = false; result.data = "\"layer is required\""; return result; }
 
         AcDbBlockTableRecord* ms = getModelSpace(db, AcDb::kForRead);
+        if (!ms) { result.success = false; result.data = "\"Cannot open model space\""; return result; }
         AcDbBlockTableRecordIterator* iter = nullptr;
         ms->newIterator(iter);
 
@@ -824,6 +841,7 @@ static BridgeResult executeOnMainThread(const BridgeCommand& cmd) {
         if (type.empty()) { result.success = false; result.data = "\"type is required\""; return result; }
 
         AcDbBlockTableRecord* ms = getModelSpace(db, AcDb::kForRead);
+        if (!ms) { result.success = false; result.data = "\"Cannot open model space\""; return result; }
         AcDbBlockTableRecordIterator* iter = nullptr;
         ms->newIterator(iter);
 
@@ -849,6 +867,7 @@ static BridgeResult executeOnMainThread(const BridgeCommand& cmd) {
     else if (cmd.method == "count_entities") {
         if (!db) { result.success = false; result.data = "\"No active drawing\""; return result; }
         AcDbBlockTableRecord* ms = getModelSpace(db, AcDb::kForRead);
+        if (!ms) { result.success = false; result.data = "\"Cannot open model space\""; return result; }
         AcDbBlockTableRecordIterator* iter = nullptr;
         ms->newIterator(iter);
         int count = 0;
@@ -860,7 +879,7 @@ static BridgeResult executeOnMainThread(const BridgeCommand& cmd) {
 
     else {
         result.success = false;
-        result.data = "\"Unknown method: " + cmd.method + "\"";
+        result.data = "\"Unknown method: " + jsonEscape(cmd.method) + "\"";
     }
 
     return result;
@@ -897,7 +916,16 @@ static BridgeResult handleCommand(const BridgeCommand& cmd) {
     { std::unique_lock<std::mutex> lock(req.mtx);
       req.cv.wait_for(lock, std::chrono::seconds(30), [&]{ return req.done; }); }
 
-    return req.done ? req.result : (result.success = false, result.data = "\"Timeout (30s)\"", result);
+    if (!req.done) {
+        // タイムアウト: g_queue からこのリクエストを削除して use-after-free を防ぐ
+        std::lock_guard<std::mutex> lock(g_queueMtx);
+        g_queue.erase(std::remove(g_queue.begin(), g_queue.end(), &req), g_queue.end());
+        result.success = false;
+        result.data = "\"Timeout (30s)\"";
+        return result;
+    }
+
+    return req.result;
 }
 
 // =====================================================================

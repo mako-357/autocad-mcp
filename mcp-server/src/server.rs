@@ -197,12 +197,12 @@ fn with_layer(mut p: serde_json::Value, layer: &Option<String>) -> serde_json::V
 #[tool_router]
 impl AutocadMcpServer {
     // --- LISP ---
-    #[tool(name = "eval_lisp", description = "AutoLISP 式を評価（全機能アクセス可能）")]
+    #[tool(name = "eval_lisp", description = "AutoLISP 式を評価（全機能アクセス可能）。信頼された環境専用。任意の AutoLISP を実行可能なため、入力の検証は呼び出し側の責任")]
     async fn eval_lisp(&self, Parameters(i): Parameters<EvalLispInput>) -> String {
         call("eval_lisp", json!({"expression": i.expression}))
     }
 
-    #[tool(name = "acad_command", description = "AutoCAD コマンドを LISP 経由で実行")]
+    #[tool(name = "acad_command", description = "AutoCAD コマンドを LISP 経由で実行。信頼された環境専用。任意の AutoLISP を実行可能なため、入力の検証は呼び出し側の責任")]
     async fn acad_command(&self, Parameters(i): Parameters<AcadCommandInput>) -> String {
         call("acad_command", json!({"command": i.command}))
     }

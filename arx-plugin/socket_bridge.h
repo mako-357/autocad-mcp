@@ -40,12 +40,6 @@ public:
     // コマンドハンドラを登録
     void setHandler(CommandHandler handler);
 
-    // 未処理のコマンドがあるかチェック
-    bool hasPendingCommands();
-
-    // キューからコマンドを取り出して処理（AutoCAD メインスレッドから呼ぶ）
-    void processPendingCommands();
-
     // ソケットパスを取得
     const std::string& socketPath() const { return m_socketPath; }
 

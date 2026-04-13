@@ -1,10 +1,13 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::os::unix::net::UnixStream;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 const SOCKET_PATH: &str = "/tmp/gfp-arx-bridge.sock";
+
+static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Serialize)]
 struct BridgeRequest {
@@ -32,7 +35,7 @@ impl AcadBridge {
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
 
         let req = BridgeRequest {
-            id: uuid_short(),
+            id: next_id(),
             method: method.to_string(),
             params,
         };
@@ -40,14 +43,13 @@ impl AcadBridge {
         let mut msg = serde_json::to_string(&req)?;
         msg.push('\n');
 
-        let mut stream_w = stream.try_clone()?;
-        stream_w.write_all(msg.as_bytes())?;
-        stream_w.flush()?;
+        stream.write_all(msg.as_bytes())?;
+        stream.flush()?;
 
-        // バイト列で読んで lossy UTF-8 変換（日本語文字化け対策）
-        let mut buf = vec![0u8; 65536];
-        let n = stream.read(&mut buf)?;
-        let line = String::from_utf8_lossy(&buf[..n]);
+        // C++ 側の auto_to_utf8() で Shift-JIS→UTF-8 変換済みなので BufReader で安全に読める
+        let mut reader = BufReader::new(&stream);
+        let mut line = String::new();
+        reader.read_line(&mut line)?;
 
         let resp: BridgeResponse = serde_json::from_str(line.trim())
             .context("レスポンスのパースに失敗")?;
@@ -61,8 +63,6 @@ impl AcadBridge {
     }
 }
 
-fn uuid_short() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    format!("{:x}", t.as_nanos() % 0xFFFFFFFF)
+fn next_id() -> String {
+    format!("req_{}", REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed))
 }
