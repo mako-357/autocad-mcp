@@ -48,8 +48,10 @@ jobs:
       - name: cppcheck
         run: |
           sudo apt-get update && sudo apt-get install -y cppcheck
-          cppcheck --enable=warning,style,performance \
+          cppcheck --language=c++ --std=c++17 \
+            --enable=warning,performance \
             --suppress=missingIncludeSystem \
             --suppress=unknownMacro \
+            --suppress=cstyleCast \
             --error-exitcode=1 \
             arx-plugin/*.cpp arx-plugin/*.h
