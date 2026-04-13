@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::os::unix::net::UnixStream;
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -18,6 +18,7 @@ struct BridgeRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct BridgeResponse {
+    #[allow(dead_code)] // プロトコル上必要だが現在は未参照
     pub id: String,
     pub success: bool,
     pub data: serde_json::Value,
@@ -51,8 +52,8 @@ impl AcadBridge {
         let mut line = String::new();
         reader.read_line(&mut line)?;
 
-        let resp: BridgeResponse = serde_json::from_str(line.trim())
-            .context("レスポンスのパースに失敗")?;
+        let resp: BridgeResponse =
+            serde_json::from_str(line.trim()).context("レスポンスのパースに失敗")?;
 
         Ok(resp)
     }
