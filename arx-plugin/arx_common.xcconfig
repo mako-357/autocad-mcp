@@ -1,2 +1,2 @@
-// GFP ARX Hello - common config
-// (intentionally empty, project-specific overrides go here)
+// GFP ARX Bridge - common config
+OTHER_LDFLAGS = $(inherited) -liconv

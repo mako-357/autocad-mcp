@@ -31,16 +31,103 @@ static const char* SOCKET_PATH = "/tmp/gfp-arx-bridge.sock";
 // ユーティリティ
 // =====================================================================
 
-static std::string wstr_to_utf8(const std::wstring& wstr) {
+static std::string wstr_to_utf8_raw(const std::wstring& wstr) {
     if (wstr.empty()) return "";
     std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-    return conv.to_bytes(wstr);
+    try { return conv.to_bytes(wstr); }
+    catch (...) { return ""; }
 }
+
+// wchar_t → UTF-8（不正バイト除去付き）。後で定義される sanitize_utf8 を使う。
+static std::string wstr_to_utf8(const std::wstring& wstr);
 
 static std::wstring utf8_to_wstr(const std::string& str) {
     if (str.empty()) return L"";
     std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
     return conv.from_bytes(str);
+}
+
+// Shift-JIS → UTF-8 変換（macOS iconv 使用）
+#include <iconv.h>
+static std::string sjis_to_utf8(const std::string& sjis) {
+    iconv_t cd = iconv_open("UTF-8", "SHIFT_JIS");
+    if (cd == (iconv_t)-1) return sjis; // iconv 利用不可ならそのまま返す
+
+    size_t inLen = sjis.size();
+    size_t outLen = inLen * 4; // UTF-8 は最大4倍
+    std::string utf8(outLen, '\0');
+
+    char* inBuf = const_cast<char*>(sjis.data());
+    char* outBuf = &utf8[0];
+    size_t inLeft = inLen;
+    size_t outLeft = outLen;
+
+    size_t result = iconv(cd, &inBuf, &inLeft, &outBuf, &outLeft);
+    iconv_close(cd);
+
+    if (result == (size_t)-1) return sjis; // 変換失敗ならそのまま
+    utf8.resize(outLen - outLeft);
+    return utf8;
+}
+
+// バイト列が有効な UTF-8 かチェック
+static bool is_valid_utf8(const std::string& s) {
+    size_t i = 0;
+    while (i < s.size()) {
+        unsigned char c = s[i];
+        int len = 0;
+        if (c < 0x80) { len = 1; }
+        else if ((c & 0xE0) == 0xC0) { len = 2; }
+        else if ((c & 0xF0) == 0xE0) { len = 3; }
+        else if ((c & 0xF8) == 0xF0) { len = 4; }
+        else { return false; }
+        if (i + len > s.size()) return false;
+        for (int j = 1; j < len; j++) {
+            if ((s[i + j] & 0xC0) != 0x80) return false;
+        }
+        i += len;
+    }
+    return true;
+}
+
+// バイト列を UTF-8 に変換（自動判定: UTF-8 ならそのまま、そうでなければ Shift-JIS として変換）
+static std::string auto_to_utf8(const std::string& s) {
+    if (is_valid_utf8(s)) return s;
+    return sjis_to_utf8(s);
+}
+
+// 不正な UTF-8 バイトを除去してクリーンな UTF-8 文字列を返す
+static std::string sanitize_utf8(const std::string& s) {
+    std::string out;
+    size_t i = 0;
+    while (i < s.size()) {
+        unsigned char c = s[i];
+        int len = 0;
+        if (c < 0x80) { len = 1; }
+        else if ((c & 0xE0) == 0xC0) { len = 2; }
+        else if ((c & 0xF0) == 0xE0) { len = 3; }
+        else if ((c & 0xF8) == 0xF0) { len = 4; }
+        else { i++; continue; } // 不正なバイト → スキップ
+
+        if (i + len > s.size()) break; // 不完全なシーケンス
+
+        bool valid = true;
+        for (int j = 1; j < len; j++) {
+            if ((s[i + j] & 0xC0) != 0x80) { valid = false; break; }
+        }
+
+        if (valid) {
+            out.append(s, i, len);
+            i += len;
+        } else {
+            i++; // 不正 → スキップ
+        }
+    }
+    return out;
+}
+
+static std::string wstr_to_utf8(const std::wstring& wstr) {
+    return sanitize_utf8(wstr_to_utf8_raw(wstr));
 }
 
 static std::string jsonEscape(const std::string& s) {
@@ -262,7 +349,7 @@ static BridgeResult executeLispDirect(const BridgeCommand& cmd) {
                 size_t n = fread(buf, 1, sizeof(buf) - 1, f);
                 fclose(f); unlink(resultFile);
                 result.success = true;
-                result.data = "\"" + jsonEscape(std::string(buf, n)) + "\"";
+                result.data = "\"" + jsonEscape(auto_to_utf8(std::string(buf, n))) + "\"";
                 return result;
             }
         }
