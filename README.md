@@ -48,6 +48,37 @@ Claude ──stdio──> MCP Server (Rust)
 (sslength (ssget "X"))
 ```
 
+## Use Cases
+
+### Section Generation (断面図自動生成)
+
+Claude can read a floor plan and auto-generate section views:
+
+1. Analyze grid lines and wall positions from the plan
+2. Detect wall thickness, openings, and structural elements
+3. Generate a complete section with walls, roof, foundation, grid labels, and dimensions
+
+### Interior Elevation (展開図自動生成)
+
+Generate interior elevations for any room:
+
+1. Identify room boundaries from grid intersections
+2. Draw 4-wall unfolded views with ceiling height
+3. Show door/window openings and wall features (e.g., wainscoting H500)
+
+### Quantity Takeoff (数量拾い出し)
+
+Auto-calculate quantities from drawings:
+
+- Floor/ceiling/wall areas
+- Wall lengths by thickness
+- Door and window counts
+- Roof area estimates
+
+### Japanese Text Support
+
+Full Shift-JIS ↔ UTF-8 auto-conversion for Japanese drawings. Room names, annotations, and layer names are correctly read and written.
+
 ## Prerequisites
 
 - **AutoCAD 2025+** (Mac or Windows)
